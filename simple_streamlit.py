@@ -370,12 +370,12 @@ def create_youtube_player(video_id, start_time, end_time):
 
 def main():
     st.set_page_config(
-        page_title="YouTube Music Looper by Jack Werner", 
+        page_title="LoopLap by Jack Werner", 
         page_icon="🎵",
         layout="wide"
     )
     
-    st.title("🎵 YouTube Music Looper by Jack Werner")
+    st.title("🎵 LoopLap by Jack Werner")
     st.markdown("Perfect for practicing music sections with precise timing!")
     
     # Initialize session state for tracking start time changes
