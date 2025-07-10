@@ -65,6 +65,12 @@ def create_youtube_player(video_id, start_time, end_time):
                 background: #ffffaa !important;
                 transition: background 0.5s ease;
             }}
+            .set-button {{
+                background: #4444ff !important;
+            }}
+            .set-button:hover {{
+                background: #3333cc !important;
+            }}
         </style>
     </head>
     <body>
@@ -73,7 +79,7 @@ def create_youtube_player(video_id, start_time, end_time):
         <div class="time-display">
             <div>Current Time: <span id="currentTime">0.00</span>s</div>
             <div>Loop: <span id="loopStart">{start_time:.2f}</span>s - <span id="loopEnd">{end_time:.2f}</span>s</div>
-            <div class="status" id="status">Click on timeline to set start time</div>
+            <div class="status" id="status">Click timeline to set start time</div>
         </div>
         
         <div class="controls">
@@ -82,7 +88,11 @@ def create_youtube_player(video_id, start_time, end_time):
             <button id="loopBtn" onclick="toggleLoop()" class="loop-active">Loop ON</button>
             <button onclick="jumpToStart()">Jump to Start</button>
             <button onclick="resetLoop()">Reset to Loop Start</button>
-            <button onclick="setCurrentAsEnd()">Set Current as End</button>
+        </div>
+        
+        <div class="controls">
+            <button class="set-button" onclick="setCurrentAsStart()">📍 Set Current as Start</button>
+            <button class="set-button" onclick="setCurrentAsEnd()">🏁 Set Current as End</button>
         </div>
 
         <script>
@@ -145,17 +155,17 @@ def create_youtube_player(video_id, start_time, end_time):
                 switch(event.data) {{
                     case YT.PlayerState.PLAYING:
                         if (!seekInProgress) {{
-                            status.textContent = 'Playing - Click timeline to set start time';
+                            status.textContent = 'Playing - Use buttons or click timeline to set loop points';
                         }}
                         break;
                     case YT.PlayerState.PAUSED:
-                        status.textContent = 'Paused - Click timeline to set start time';
+                        status.textContent = 'Paused - Use buttons or click timeline to set loop points';
                         break;
                     case YT.PlayerState.BUFFERING:
                         status.textContent = 'Buffering...';
                         break;
                     default:
-                        status.textContent = 'Click timeline to set start time';
+                        status.textContent = 'Use buttons or click timeline to set loop points';
                 }}
             }}
 
@@ -165,7 +175,13 @@ def create_youtube_player(video_id, start_time, end_time):
                 var isLargeJump = timeDiff > 1.0; // More than 1 second jump
                 var isNotOurLoop = !(Math.abs(currentTime - startTime) < 0.5); // Not jumping to our loop start
                 
-                if (isLargeJump && isNotOurLoop && !seekInProgress) {{
+                // ADDITIONAL CHECK: Don't auto-set if we're close to end time (likely a loop artifact)
+                var isNearEndTime = Math.abs(currentTime - endTime) < 0.5;
+                
+                // ADDITIONAL CHECK: Don't auto-set if we just came from near the end (loop scenario)
+                var wasNearEnd = Math.abs(lastTime - endTime) < 1.0;
+                
+                if (isLargeJump && isNotOurLoop && !seekInProgress && !isNearEndTime && !wasNearEnd) {{
                     // User manually seeked - set this as new start time!
                     seekInProgress = true;
                     allowLooping = false;
@@ -195,7 +211,7 @@ def create_youtube_player(video_id, start_time, end_time):
                     seekTimeout = setTimeout(function() {{
                         seekInProgress = false;
                         allowLooping = true;
-                        document.getElementById('status').textContent = 'Loop ready - Click timeline to update start time';
+                        document.getElementById('status').textContent = 'Loop ready - Use buttons or timeline to adjust';
                     }}, 2000);
                 }}
                 
@@ -220,8 +236,14 @@ def create_youtube_player(video_id, start_time, end_time):
                     if (player && player.getCurrentTime && allowLooping) {{
                         var currentTime = player.getCurrentTime();
                         if (currentTime >= endTime && loopActive && !seekInProgress) {{
+                            seekInProgress = true; // Prevent detectUserSeek from interfering
                             player.seekTo(startTime, true);
                             lastTime = startTime; // Update lastTime to prevent false seek detection
+                            
+                            // Clear seek flag after a brief delay
+                            setTimeout(function() {{
+                                seekInProgress = false;
+                            }}, 300);
                         }}
                     }}
                 }}, 150);
@@ -294,6 +316,27 @@ def create_youtube_player(video_id, start_time, end_time):
                 }}
             }}
 
+            function setCurrentAsStart() {{
+                if (player && player.getCurrentTime) {{
+                    var currentTime = player.getCurrentTime();
+                    startTime = currentTime;
+                    document.getElementById('loopStart').textContent = startTime.toFixed(2);
+                    
+                    // Visual feedback
+                    var timeDisplay = document.querySelector('.time-display');
+                    timeDisplay.classList.add('updated');
+                    setTimeout(function() {{
+                        timeDisplay.classList.remove('updated');
+                    }}, 1000);
+                    
+                    document.getElementById('status').textContent = `Start time set to ${{startTime.toFixed(2)}}s`;
+                    
+                    setTimeout(function() {{
+                        document.getElementById('status').textContent = 'Start updated! Set end time or start looping';
+                    }}, 2000);
+                }}
+            }}
+
             function setCurrentAsEnd() {{
                 if (player && player.getCurrentTime) {{
                     var currentTime = player.getCurrentTime();
@@ -311,7 +354,7 @@ def create_youtube_player(video_id, start_time, end_time):
                         document.getElementById('status').textContent = `End time set to ${{endTime.toFixed(2)}}s`;
                         
                         setTimeout(function() {{
-                            document.getElementById('status').textContent = 'Loop updated! Click timeline to change start time';
+                            document.getElementById('status').textContent = 'Loop updated! Ready to practice';
                         }}, 2000);
                     }} else {{
                         document.getElementById('status').textContent = 'End time must be after start time!';
@@ -342,6 +385,8 @@ def main():
         st.session_state.default_duration = 10.0
     if 'auto_end_time' not in st.session_state:
         st.session_state.auto_end_time = 10.0
+    if 'example_url' not in st.session_state:
+        st.session_state.example_url = ""
     
     # Input section
     col1, col2 = st.columns([2, 1])
@@ -349,9 +394,14 @@ def main():
     with col1:
         youtube_url = st.text_input(
             "YouTube URL:", 
+            value=st.session_state.example_url,
             placeholder="https://www.youtube.com/watch?v=...",
             help="Paste any YouTube URL here"
         )
+        
+        # Clear the example URL after it's been used
+        if youtube_url and st.session_state.example_url:
+            st.session_state.example_url = ""
     
     with col2:
         st.markdown("### Examples:")
@@ -469,6 +519,21 @@ def main():
     
     else:
         st.info("👆 Enter a YouTube URL above to get started!")
+        
+        # Example YouTube links
+        st.markdown("### 🎥 Try These Examples:")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🎸 Sugaree (Noblesville '21) - Dead & Co", key="example_1"):
+                st.session_state.example_url = "https://www.youtube.com/watch?v=ZB8VdpXM1wk"
+                st.rerun()
+        
+        with col2:
+            if st.button("🎵 Bertha (Veneta '72) - Grateful Deat", key="example_2"):
+                st.session_state.example_url = "https://www.youtube.com/watch?v=yTR8LDOc-rQ"
+                st.rerun()
         
         # Show example
         st.markdown("### 🎯 Perfect for:")
