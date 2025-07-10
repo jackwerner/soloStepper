@@ -370,12 +370,12 @@ def create_youtube_player(video_id, start_time, end_time):
 
 def main():
     st.set_page_config(
-        page_title="YouTube Loop Player", 
+        page_title="YouTube Music Looper by Jack Werner", 
         page_icon="🎵",
         layout="wide"
     )
     
-    st.title("🎵 YouTube Loop Player")
+    st.title("🎵 YouTube Music Looper by Jack Werner")
     st.markdown("Perfect for practicing music sections with precise timing!")
     
     # Initialize session state for tracking start time changes
@@ -389,25 +389,17 @@ def main():
         st.session_state.example_url = ""
     
     # Input section
-    col1, col2 = st.columns([2, 1])
     
-    with col1:
-        youtube_url = st.text_input(
-            "YouTube URL:", 
-            value=st.session_state.example_url,
-            placeholder="https://www.youtube.com/watch?v=...",
-            help="Paste any YouTube URL here"
-        )
-        
-        # Clear the example URL after it's been used
-        if youtube_url and st.session_state.example_url:
-            st.session_state.example_url = ""
+    youtube_url = st.text_input(
+        "YouTube URL:", 
+        value=st.session_state.example_url,
+        placeholder="https://www.youtube.com/watch?v=...",
+        help="Paste any YouTube URL here"
+    )
     
-    with col2:
-        st.markdown("### Examples:")
-        st.markdown("- youtube.com/watch?v=abc123")
-        st.markdown("- youtu.be/abc123")
-        st.markdown("- youtube.com/embed/abc123")
+    # Clear the example URL after it's been used
+    if youtube_url and st.session_state.example_url:
+        st.session_state.example_url = ""
     
     if youtube_url:
         video_id = extract_video_id(youtube_url)
@@ -415,104 +407,28 @@ def main():
         if video_id:
             st.success(f"✅ Video ID extracted: {video_id}")
             
-            # Time controls
-            st.markdown("### ⏰ Loop Settings")
+            # Default times - user can adjust with video player controls
+            start_time_total = 0.0
+            end_time_total = 10.0
             
-            col1, col2, col3 = st.columns(3)
+            st.markdown("### 🎬 Video Player")
             
-            with col1:
-                start_time_total = st.number_input(
-                    "Start (seconds):", 
-                    min_value=0.0, 
-                    value=0.0, 
-                    step=0.01, 
-                    format="%.2f",
-                    key="start_time"
-                )
-                
-                # Auto-adjust default duration based on user's typical usage
-                duration_preset = st.selectbox(
-                    "Default duration:",
-                    [5.0, 8.0, 10.0, 15.0, 20.0, 30.0],
-                    index=2,  # Default to 10 seconds
-                    format_func=lambda x: f"{x:.0f}s"
-                )
-                st.session_state.default_duration = duration_preset
-                
-                # Check if start time changed and update auto end time
-                if start_time_total != st.session_state.last_start_time:
-                    st.session_state.auto_end_time = start_time_total + st.session_state.default_duration
-                    st.session_state.last_start_time = start_time_total
+            # Create and display the player
+            player_html = create_youtube_player(video_id, start_time_total, end_time_total)
+            components.html(player_html, height=600)
             
-            with col2:
-                # Use the auto-calculated end time as default
-                end_time_total = st.number_input(
-                    "End (seconds):", 
-                    min_value=0.0, 
-                    value=st.session_state.auto_end_time, 
-                    step=0.01, 
-                    format="%.2f",
-                    key="end_time"
-                )
+            st.markdown("### 🎮 How to Use:")
+            st.markdown("""
+            - **🎯 Click timeline** to set start time
+            - **▶️ Play/Pause**: Basic video controls  
+            - **🔄 Loop ON/OFF**: Toggle automatic looping
+            - **⏭️ Jump to Start**: Go to loop start time
+            - **🔄 Reset**: Jump to start and play
+            - **📍 Set Current as Start**: Use current position as start time
+            - **🏁 Set Current as End**: Use current position as end time
             
-            with col3:
-                st.markdown("**Loop Info:**")
-                st.write(f"Start: {start_time_total:.2f}s")
-                st.write(f"End: {end_time_total:.2f}s")
-                duration = end_time_total - start_time_total
-                st.write(f"Duration: {duration:.2f}s")
-                
-                # Show time in MM:SS format for longer durations
-                if start_time_total >= 60:
-                    start_mins = int(start_time_total // 60)
-                    start_secs = start_time_total % 60
-                    st.write(f"Start: {start_mins}:{start_secs:05.2f}")
-                
-                if end_time_total >= 60:
-                    end_mins = int(end_time_total // 60)
-                    end_secs = end_time_total % 60
-                    st.write(f"End: {end_mins}:{end_secs:05.2f}")
-            
-            if end_time_total > start_time_total:
-                st.markdown("### 🎬 Video Player")
-                
-                # Create and display the player
-                player_html = create_youtube_player(video_id, start_time_total, end_time_total)
-                components.html(player_html, height=600)
-                
-                st.markdown("### 🎮 How to Use:")
-                st.markdown(f"""
-                - **🎯 Click timeline** to set start time (end auto-sets to +{st.session_state.default_duration:.0f}s)
-                - **▶️ Play/Pause**: Basic video controls  
-                - **🔄 Loop ON/OFF**: Toggle automatic looping
-                - **⏭️ Jump to Start**: Go to loop start time
-                - **🔄 Reset**: Jump to start and play
-                - **⏹️ Set Current as End**: Use current position as end time
-                
-                **Pro tip**: Change "Default duration" above to customize auto-end timing!
-                """)
-                
-                # Quick time presets
-                st.markdown("### ⚡ Quick Presets")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                preset_data = [
-                    ("🎵 8s from start", 0, 8),
-                    ("🎼 16s from start", 0, 16), 
-                    ("🎸 30s from start", 0, 30),
-                    ("🥁 1min from start", 0, 60)
-                ]
-                
-                for i, (label, start, end) in enumerate(preset_data):
-                    with [col1, col2, col3, col4][i]:
-                        if st.button(label, key=f"preset_{i}"):
-                            # Use session state keys that don't conflict with widget keys
-                            st.session_state.last_start_time = start - 1  # Force update
-                            st.session_state.auto_end_time = end
-                            st.rerun()
-                
-            else:
-                st.error("❌ End time must be greater than start time!")
+            **Pro tip**: Use the video player's built-in controls to set your perfect loop!
+            """)
                 
         else:
             st.error("❌ Invalid YouTube URL. Please check the format.")
