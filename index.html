@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guitar Lick Analysis Dashboard</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        
+        .dashboard {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #ff6b35;
+            margin-bottom: 30px;
+        }
+        
+        .audio-section {
+            background-color: #2d2d2d;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        audio {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
+        .timeline-container {
+            background-color: #2d2d2d;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .timeline {
+            height: 100px;
+            position: relative;
+            background-color: #404040;
+            border-radius: 5px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        
+        .lick-bar {
+            position: absolute;
+            height: 80px;
+            top: 10px;
+            background: linear-gradient(45deg, #ff6b35, #f7931e);
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+            border: 2px solid transparent;
+        }
+        
+        .lick-bar:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(255, 107, 53, 0.4);
+            border-color: #ffffff;
+        }
+        
+        .lick-bar.active {
+            background: linear-gradient(45deg, #00ff88, #00cc6a);
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 255, 136, 0.4);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            background-color: #ff6b35;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #e55a2b;
+        }
+        
+        button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+        
+        .lick-info {
+            background-color: #2d2d2d;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .lick-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .lick-card {
+            background-color: #404040;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+        
+        .lick-card:hover {
+            background-color: #4a4a4a;
+            border-color: #ff6b35;
+        }
+        
+        .lick-card.active {
+            border-color: #00ff88;
+            background-color: #2a4a3a;
+        }
+        
+        .lick-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .lick-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #ff6b35;
+        }
+        
+        .chord-display {
+            background-color: #ff6b35;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .lick-details {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .time-display {
+            color: #888;
+            font-size: 12px;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background-color: #2d2d2d;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff6b35;
+        }
+        
+        .stat-label {
+            font-size: 14px;
+            color: #888;
+            margin-top: 5px;
+        }
+        
+        /* Add new CSS for looping status indicators */
+        .loop-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: #404040;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+        
+        .loop-status.looping {
+            background-color: #1a4d1a;
+            border-color: #00ff88;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+        
+        .loop-status.stopped {
+            background-color: #4d1a1a;
+            border-color: #ff4444;
+        }
+        
+        .status-indicator {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .status-indicator.looping {
+            color: #00ff88;
+        }
+        
+        .status-indicator.stopped {
+            color: #ff4444;
+        }
+        
+        .status-details {
+            font-size: 14px;
+            color: #ccc;
+        }
+        
+        button.loop-button {
+            background-color: #ff6b35;
+            transition: all 0.3s ease;
+        }
+        
+        button.loop-button.active {
+            background-color: #00ff88;
+            color: #000;
+            font-weight: bold;
+        }
+        
+        button.stop-button {
+            background-color: #666;
+        }
+        
+        button.stop-button.active {
+            background-color: #ff4444;
+            color: white;
+        }
+        
+        .lick-info.looping {
+            border: 2px solid #00ff88;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <h1>🎸 Guitar Lick Analysis Dashboard</h1>
+        
+        <div class="audio-section">
+            <h3>Audio Playback</h3>
+            <audio id="audioPlayer" controls>
+                <source id="audioSource" src="" type="audio/mpeg">
+                Your browser does not support the audio element.
+            </audio>
+            <div class="controls">
+                <button onclick="playCurrentLick()">Play Current Lick</button>
+                <button onclick="playPreviousLick()">← Previous Lick</button>
+                <button onclick="playNextLick()">Next Lick →</button>
+                <button onclick="stopPlayback()">Stop</button>
+            </div>
+        </div>
+        
+        <div class="stats" id="statsContainer">
+            <!-- Stats will be populated by JavaScript -->
+        </div>
+        
+        <div class="timeline-container">
+            <h3>Interactive Timeline (Click licks to play)</h3>
+            <div class="timeline" id="timeline">
+                <!-- Lick bars will be populated by JavaScript -->
+            </div>
+        </div>
+        
+        <div class="lick-info">
+            <h3>Current Lick Info</h3>
+            <div id="currentLickInfo">Select a lick to see details...</div>
+        </div>
+        
+        <div class="lick-info">
+            <h3>All Licks</h3>
+            <div class="lick-grid" id="lickGrid">
+                <!-- Lick cards will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let dashboardData = null;
+        let currentLickIndex = 0;
+        let audioPlayer = null;
+        let isLooping = false;
+        let loopTimeout = null;
+        let loopStartTime = null;
+        let loopInterval = null;
+        let audioContext = null;
+        let metronomeEnabled = true;
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            audioPlayer = document.getElementById('audioPlayer');
+            
+            // Initialize audio context for metronome
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            loadDashboardData();
+        });
+
+        async function loadDashboardData() {
+            try {
+                const response = await fetch('dashboard_data.json');
+                dashboardData = await response.json();
+                
+                // Set audio source (you'll need to put your audio file in the same directory)
+                document.getElementById('audioSource').src = dashboardData.audio_file;
+                audioPlayer.load();
+                
+                renderDashboard();
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+                document.body.innerHTML = '<div style="text-align: center; margin-top: 50px;"><h2>Error loading data</h2><p>Make sure dashboard_data.json and your audio file are in the same directory as this HTML file.</p></div>';
+            }
+        }
+
+        function renderDashboard() {
+            renderStats();
+            renderTimeline();
+            renderLickGrid();
+            selectLick(0);
+        }
+
+        function renderStats() {
+            const statsContainer = document.getElementById('statsContainer');
+            const totalLicks = dashboardData.licks.length;
+            const avgDuration = dashboardData.licks.reduce((sum, lick) => sum + lick.duration, 0) / totalLicks;
+            const totalDuration = dashboardData.total_duration;
+            const tempo = dashboardData.tempo;
+
+            statsContainer.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${totalLicks}</div>
+                    <div class="stat-label">Total Licks</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${avgDuration.toFixed(1)}s</div>
+                    <div class="stat-label">Average Lick Duration</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${tempo.toFixed(0)}</div>
+                    <div class="stat-label">BPM</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${totalDuration.toFixed(0)}s</div>
+                    <div class="stat-label">Total Duration</div>
+                </div>
+            `;
+        }
+
+        function renderTimeline() {
+            const timeline = document.getElementById('timeline');
+            const maxTime = dashboardData.total_duration;
+            
+            timeline.innerHTML = '';
+            
+            dashboardData.licks.forEach((lick, index) => {
+                const lickBar = document.createElement('div');
+                lickBar.className = 'lick-bar';
+                lickBar.style.left = `${(lick.start_time / maxTime) * 100}%`;
+                lickBar.style.width = `${(lick.duration / maxTime) * 100}%`;
+                lickBar.textContent = `L${lick.id}`;
+                lickBar.title = `Lick ${lick.id}: ${lick.primary_chord} (${lick.start_time}s - ${lick.end_time}s)`;
+                
+                lickBar.addEventListener('click', () => selectLick(index));
+                timeline.appendChild(lickBar);
+            });
+        }
+
+        function renderLickGrid() {
+            const lickGrid = document.getElementById('lickGrid');
+            
+            lickGrid.innerHTML = dashboardData.licks.map((lick, index) => `
+                <div class="lick-card" onclick="selectLick(${index})">
+                    <div class="lick-header">
+                        <div class="lick-title">Lick ${lick.id}</div>
+                        <div class="chord-display">${lick.primary_chord}</div>
+                    </div>
+                    <div class="lick-details">
+                        <div><strong>Duration:</strong> ${lick.duration}s (${lick.beats} beats)</div>
+                        <div><strong>Time:</strong> ${lick.start_time}s - ${lick.end_time}s</div>
+                        <div><strong>Notes:</strong> ${lick.onset_count}</div>
+                        <div><strong>Activity:</strong> ${(lick.activity_score * 100).toFixed(0)}%</div>
+                        ${lick.all_chords.length > 1 ? `<div><strong>All Chords:</strong> ${lick.all_chords.join(', ')}</div>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function selectLick(index) {
+            if (index < 0 || index >= dashboardData.licks.length) return;
+            
+            // Stop any current looping
+            stopLooping();
+            
+            currentLickIndex = index;
+            const lick = dashboardData.licks[index];
+            
+            // Update visual indicators
+            document.querySelectorAll('.lick-bar').forEach((bar, i) => {
+                bar.classList.toggle('active', i === index);
+            });
+            
+            document.querySelectorAll('.lick-card').forEach((card, i) => {
+                card.classList.toggle('active', i === index);
+            });
+            
+            // Update current lick info
+            updateCurrentLickInfo();
+            
+            // Automatically start looping the selected lick
+            startLooping();
+        }
+        
+        function updateCurrentLickInfo() {
+            const lick = dashboardData.licks[currentLickIndex];
+            const currentLickInfo = document.getElementById('currentLickInfo');
+            currentLickInfo.innerHTML = `
+                <div class="loop-status ${isLooping ? 'looping' : 'stopped'}" id="loopStatus">
+                    <div>
+                        <div class="status-indicator ${isLooping ? 'looping' : 'stopped'}" id="statusIndicator">
+                            ${isLooping ? '🔄 LOOPING' : '⏹ STOPPED'}
+                        </div>
+                        <div class="status-details" id="statusDetails">
+                            ${isLooping ? 'Lick is playing in a continuous loop' : 'Playback has been stopped'}
+                        </div>
+                    </div>
+                    <div>
+                        <small style="color: #888;">Press spacebar to toggle</small>
+                    </div>
+                </div>
+                <h4>Lick ${lick.id} - ${lick.primary_chord}</h4>
+                <p><strong>Time:</strong> ${lick.start_time}s - ${lick.end_time}s (${lick.duration}s duration)</p>
+                <p><strong>Beats:</strong> ${lick.beats} beats</p>
+                <p><strong>Notes/Onsets:</strong> ${lick.onset_count}</p>
+                <p><strong>Activity Score:</strong> ${(lick.activity_score * 100).toFixed(0)}%</p>
+                ${lick.all_chords.length > 1 ? `<p><strong>All Chords:</strong> ${lick.all_chords.join(', ')}</p>` : ''}
+                <div style="margin-top: 10px;">
+                    <button class="loop-button ${isLooping ? 'active' : ''}" onclick="startLooping()" id="loopButton">
+                        🔄 ${isLooping ? 'LOOPING...' : 'Start Loop'}
+                    </button>
+                    <button class="stop-button ${!isLooping ? 'active' : ''}" onclick="stopLooping()" id="stopButton">
+                        ⏹ ${!isLooping ? 'STOPPED' : 'Stop Loop'}
+                    </button>
+                    <button onclick="toggleMetronome()" id="metronomeToggle">🎵 Metronome: ${metronomeEnabled ? 'ON' : 'OFF'}</button>
+                </div>
+            `;
+        }
+        
+        function updateLoopingUI() {
+            // Update status indicator
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusDetails = document.getElementById('statusDetails');
+            const loopStatus = document.getElementById('loopStatus');
+            const loopButton = document.getElementById('loopButton');
+            const stopButton = document.getElementById('stopButton');
+            const currentLickInfoDiv = document.querySelector('.lick-info');
+            
+            if (statusIndicator && statusDetails && loopStatus) {
+                if (isLooping) {
+                    statusIndicator.textContent = '🔄 LOOPING';
+                    statusIndicator.className = 'status-indicator looping';
+                    statusDetails.textContent = 'Lick is playing in a continuous loop';
+                    loopStatus.className = 'loop-status looping';
+                    currentLickInfoDiv.classList.add('looping');
+                } else {
+                    statusIndicator.textContent = '⏹ STOPPED';
+                    statusIndicator.className = 'status-indicator stopped';
+                    statusDetails.textContent = 'Playback has been stopped';
+                    loopStatus.className = 'loop-status stopped';
+                    currentLickInfoDiv.classList.remove('looping');
+                }
+            }
+            
+            // Update button states
+            if (loopButton) {
+                loopButton.textContent = `🔄 ${isLooping ? 'LOOPING...' : 'Start Loop'}`;
+                loopButton.className = `loop-button ${isLooping ? 'active' : ''}`;
+            }
+            
+            if (stopButton) {
+                stopButton.textContent = `⏹ ${!isLooping ? 'STOPPED' : 'Stop Loop'}`;
+                stopButton.className = `stop-button ${!isLooping ? 'active' : ''}`;
+            }
+        }
+
+        function playMetronomeClick() {
+            if (!audioContext || !metronomeEnabled) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // High pitch click
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+        }
+
+        function toggleMetronome() {
+            metronomeEnabled = !metronomeEnabled;
+            document.getElementById('metronomeToggle').textContent = `🎵 Metronome: ${metronomeEnabled ? 'ON' : 'OFF'}`;
+        }
+
+        function playCurrentLick() {
+            if (!dashboardData || currentLickIndex >= dashboardData.licks.length) return;
+            
+            const lick = dashboardData.licks[currentLickIndex];
+            
+            // Stop any existing loop timing
+            if (loopInterval) {
+                clearInterval(loopInterval);
+                loopInterval = null;
+            }
+            
+            // Record the precise start time
+            loopStartTime = performance.now();
+            
+            // Set initial position and play
+            audioPlayer.currentTime = lick.start_time;
+            audioPlayer.play();
+            
+            // Use high-precision timing for loop control
+            const lickDurationMs = lick.duration * 1000;
+            const gapDurationMs = lickDurationMs; // Ensure gap is exactly equal to lick duration
+            const totalCycleMs = lickDurationMs + gapDurationMs;
+            
+            // Calculate metronome timing based on tempo
+            const bpm = dashboardData.tempo;
+            const beatIntervalMs = (60 / bpm) * 1000;
+            let lastMetronomeTime = -beatIntervalMs; // Start ready to click immediately
+            
+            // Track current state more precisely
+            let currentState = 'playing'; // 'playing' or 'gap'
+            let stateStartTime = loopStartTime;
+            
+            // Check timing every 5ms for even higher precision
+            loopInterval = setInterval(() => {
+                if (!isLooping) {
+                    clearInterval(loopInterval);
+                    loopInterval = null;
+                    return;
+                }
+                
+                const now = performance.now();
+                const elapsed = now - loopStartTime;
+                const cyclePosition = elapsed % totalCycleMs;
+                
+                // Determine what state we should be in
+                const shouldBePlaying = cyclePosition < lickDurationMs;
+                
+                if (shouldBePlaying && currentState !== 'playing') {
+                    // Transition to playing
+                    currentState = 'playing';
+                    stateStartTime = now;
+                    audioPlayer.currentTime = lick.start_time;
+                    audioPlayer.play();
+                } else if (!shouldBePlaying && currentState !== 'gap') {
+                    // Transition to gap
+                    currentState = 'gap';
+                    stateStartTime = now;
+                    audioPlayer.pause();
+                    lastMetronomeTime = -beatIntervalMs; // Reset metronome timing for gap
+                }
+                
+                // Handle current state
+                if (currentState === 'playing') {
+                    // Check if we need to stop the lick
+                    if (audioPlayer.currentTime >= lick.end_time) {
+                        audioPlayer.pause();
+                    }
+                } else if (currentState === 'gap') {
+                    // Handle metronome during gap
+                    if (metronomeEnabled) {
+                        const gapElapsed = now - stateStartTime;
+                        const timeSinceLastClick = gapElapsed - lastMetronomeTime;
+                        
+                        if (timeSinceLastClick >= beatIntervalMs) {
+                            playMetronomeClick();
+                            lastMetronomeTime = gapElapsed;
+                        }
+                    }
+                }
+            }, 5);
+        }
+
+        function startLooping() {
+            isLooping = true;
+            updateLoopingUI();
+            playCurrentLick();
+        }
+
+        function stopLooping() {
+            isLooping = false;
+            updateLoopingUI();
+            if (loopTimeout) {
+                clearTimeout(loopTimeout);
+                loopTimeout = null;
+            }
+            if (loopInterval) {
+                clearInterval(loopInterval);
+                loopInterval = null;
+            }
+            audioPlayer.pause();
+        }
+
+        function playPreviousLick() {
+            if (currentLickIndex > 0) {
+                selectLick(currentLickIndex - 1);
+            }
+        }
+
+        function playNextLick() {
+            if (currentLickIndex < dashboardData.licks.length - 1) {
+                selectLick(currentLickIndex + 1);
+            }
+        }
+
+        function stopPlayback() {
+            stopLooping();
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            switch(e.key) {
+                case ' ':
+                    e.preventDefault();
+                    if (audioPlayer.paused) {
+                        playCurrentLick();
+                    } else {
+                        stopPlayback();
+                    }
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    playPreviousLick();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    playNextLick();
+                    break;
+            }
+        });
+    </script>
+</body>
+</html>
