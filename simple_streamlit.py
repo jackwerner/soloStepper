@@ -447,7 +447,7 @@ def main():
                 st.rerun()
         
         with col2:
-            if st.button("🎵 Bertha (Veneta '72) - Grateful Deat", key="example_2"):
+            if st.button("🎵 Bertha (Veneta '72) - Grateful Dead", key="example_2"):
                 st.session_state.example_url = "https://www.youtube.com/watch?v=yTR8LDOc-rQ"
                 st.rerun()
         
