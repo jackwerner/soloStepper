@@ -1,3 +1,5 @@
 .venv/
 *.mp3
 *.wav
+*.csv
+*.json

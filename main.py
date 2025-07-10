@@ -67,106 +67,168 @@ class GuitarSoloAnalyzer:
     
     def detect_beats_and_measures(self):
         """
-        Detect beats and estimate measure boundaries with automatic downbeat alignment
+        Robust beat and measure detection that handles 3/4 and 4/4 time signatures
+        and can adapt to irregular timing and pauses
         """
         try:
-            # Get tempo and beat locations
-            tempo, beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='time')
+            # Get basic tempo and beat tracking with only supported parameters
+            tempo, beats = librosa.beat.beat_track(
+                y=self.y, 
+                sr=self.sr, 
+                units='time',
+                hop_length=512,
+                trim=True
+            )
+            
             if isinstance(tempo, np.ndarray):
                 tempo = float(tempo.item() if tempo.size == 1 else tempo[0])
             else:
                 tempo = float(tempo)
+                
             if len(beats) < 4:
+                print("Insufficient beats detected")
                 return tempo, beats, []
 
-            # Estimate average beat interval
-            beat_intervals = np.diff(beats)
-            avg_beat_interval = np.median(beat_intervals)
-
-            # Find the first downbeat BEFORE or at the first detected beat
-            # (Assume the first bar starts at or before the first beat)
-            first_beat = beats[0]
-            # Find the time of the first downbeat (could be negative, but that's ok)
-            first_downbeat = first_beat - (first_beat % (4 * avg_beat_interval))
-
-            # Generate all downbeat times from the first downbeat up to the last beat
-            downbeats = np.arange(first_downbeat, beats[-1] + 4 * avg_beat_interval, 4 * avg_beat_interval)
-
-            # For each downbeat, find the closest 4 beats to define a measure
-            measures = []
-            for downbeat in downbeats:
-                # Find the 4 beats that are closest to this measure
-                measure_beats = []
-                for i in range(4):
-                    target_time = downbeat + i * avg_beat_interval
-                    # Find the closest actual beat
-                    idx = np.argmin(np.abs(beats - target_time))
-                    measure_beats.append(beats[idx])
-                # Only add if the measure is within the song
-                if measure_beats[-1] <= beats[-1]:
-                    measures.append({
-                        'start': measure_beats[0],
-                        'end': measure_beats[-1],
-                        'beats': measure_beats
-                    })
-
-            print(f"Auto-aligned {len(measures)} measures starting from {measures[0]['start']:.2f}s")
+            print(f"Detected {len(beats)} beats at {tempo:.1f} BPM")
+            
+            # Detect time signature and downbeats
+            time_signature, downbeat_indices = self._detect_time_signature_and_downbeats(beats)
+            
+            # Build measures using detected downbeats
+            measures = self._build_flexible_measures(beats, downbeat_indices, time_signature)
+            
+            print(f"Detected {time_signature} time signature with {len(measures)} measures")
             return tempo, beats, measures
 
         except Exception as e:
             print(f"Beat detection failed: {e}")
             return 120.0, [], []
 
-    def find_downbeat_index(self, beats):
+    def _detect_time_signature_and_downbeats(self, beats):
         """
-        Find the index of the true downbeat (beat 1) in the detected beats array
+        Detect time signature (3/4 or 4/4) and find downbeat positions
         """
-        
-        # Method 1: Use onset strength to find the strongest beats
+        # Use onset strength to find strong beats (likely downbeats)
         onset_strength = librosa.onset.onset_strength(y=self.y, sr=self.sr)
         onset_times = librosa.frames_to_time(np.arange(len(onset_strength)), sr=self.sr)
         
-        # Calculate strength at each beat position
+        # Get strength at each beat position
         beat_strengths = []
-        for beat_time in beats[:min(len(beats), 16)]:  # Check first 16 beats
-            # Find the closest onset strength measurement to this beat
+        for beat_time in beats:
             closest_idx = np.argmin(np.abs(onset_times - beat_time))
             beat_strengths.append(onset_strength[closest_idx])
         
-        # Method 2: Look for patterns in beat strength (downbeats are often strongest)
-        # Try each possible downbeat position (0, 1, 2, 3) and see which gives the strongest pattern
-        best_score = -1
+        # Try both 3/4 and 4/4 time signatures to see which fits better
+        scores_3_4 = self._score_time_signature(beat_strengths, 3)
+        scores_4_4 = self._score_time_signature(beat_strengths, 4)
+        
+        if scores_4_4['confidence'] > scores_3_4['confidence']:
+            time_signature = "4/4"
+            beats_per_measure = 4
+            best_offset = scores_4_4['offset']
+        else:
+            time_signature = "3/4"
+            beats_per_measure = 3
+            best_offset = scores_3_4['offset']
+        
+        # Generate downbeat indices starting from the best offset
+        downbeat_indices = list(range(best_offset, len(beats), beats_per_measure))
+        
+        print(f"Time signature: {time_signature}, first downbeat at beat {best_offset + 1}")
+        return time_signature, downbeat_indices
+
+    def _score_time_signature(self, beat_strengths, beats_per_measure):
+        """
+        Score how well a given time signature fits the beat strength pattern
+        """
+        best_score = 0
         best_offset = 0
         
-        for offset in range(4):
-            if offset >= len(beat_strengths):
-                continue
-            
-            # Calculate average strength for beats that would be downbeats with this offset
+        for offset in range(min(beats_per_measure, len(beat_strengths))):
+            # Get strengths of beats that would be downbeats with this offset
             downbeat_strengths = []
-            for i in range(offset, len(beat_strengths), 4):
-                downbeat_strengths.append(beat_strengths[i])
+            other_beat_strengths = []
             
-            if len(downbeat_strengths) >= 2:
-                avg_downbeat_strength = np.mean(downbeat_strengths)
+            for i, strength in enumerate(beat_strengths):
+                if (i - offset) % beats_per_measure == 0 and i >= offset:
+                    downbeat_strengths.append(strength)
+                elif i >= offset:
+                    other_beat_strengths.append(strength)
+            
+            if len(downbeat_strengths) >= 2 and len(other_beat_strengths) >= 2:
+                # Calculate how much stronger downbeats are compared to other beats
+                avg_downbeat = np.mean(downbeat_strengths)
+                avg_other = np.mean(other_beat_strengths)
+                strength_ratio = avg_downbeat / (avg_other + 1e-10)
                 
-                # Also calculate strength of other beats
-                other_beats = []
-                for i in range(len(beat_strengths)):
-                    if (i - offset) % 4 != 0:  # Not a downbeat with this offset
-                        other_beats.append(beat_strengths[i])
+                # Also consider consistency of downbeat strengths
+                downbeat_consistency = 1.0 / (1.0 + np.std(downbeat_strengths))
                 
-                if len(other_beats) > 0:
-                    avg_other_strength = np.mean(other_beats)
-                    strength_ratio = avg_downbeat_strength / (avg_other_strength + 1e-10)
-                    
-                    # Higher ratio indicates this offset gives stronger downbeats
-                    if strength_ratio > best_score:
-                        best_score = strength_ratio
-                        best_offset = offset
+                # Combined score
+                score = strength_ratio * downbeat_consistency
+                
+                if score > best_score:
+                    best_score = score
+                    best_offset = offset
         
-        return best_offset
-    
+        return {
+            'confidence': best_score,
+            'offset': best_offset
+        }
+
+    def _build_flexible_measures(self, beats, downbeat_indices, time_signature):
+        """
+        Build measures that can handle irregular timing and pauses
+        """
+        measures = []
+        beats_per_measure = 4 if time_signature == "4/4" else 3
+        
+        # Calculate average beat duration for proper measure endings
+        beat_intervals = np.diff(beats)
+        avg_beat_duration = np.median(beat_intervals) if len(beat_intervals) > 0 else 0.5
+        
+        for i, downbeat_idx in enumerate(downbeat_indices):
+            # FIXED: Always limit to the expected number of beats per measure
+            remaining_beats = len(beats) - downbeat_idx
+            actual_beats_in_measure = min(beats_per_measure, remaining_beats)
+            
+            # Create measure with exactly the right number of beats
+            measure_beat_indices = list(range(downbeat_idx, downbeat_idx + actual_beats_in_measure))
+            
+            if len(measure_beat_indices) == 0:
+                continue
+                
+            # Get the actual beat times for this measure
+            measure_beats = [beats[idx] for idx in measure_beat_indices if idx < len(beats)]
+            
+            if len(measure_beats) >= 2:  # At least 2 beats for a valid measure
+                # Calculate proper measure boundaries
+                measure_start = measure_beats[0]  # Start at first beat (downbeat)
+                
+                # End time: if there's a next measure, end at its downbeat
+                # Otherwise, end after the duration of the last beat
+                if i + 1 < len(downbeat_indices) and downbeat_indices[i + 1] < len(beats):
+                    measure_end = beats[downbeat_indices[i + 1]]
+                else:
+                    measure_end = measure_beats[-1] + avg_beat_duration
+                
+                # Check for irregular timing (long pauses)
+                intervals = np.diff(measure_beats)
+                median_interval = np.median(intervals) if len(intervals) > 0 else 0.5
+                has_pause = any(interval > 3 * median_interval for interval in intervals)
+                
+                measures.append({
+                    'start': measure_start,
+                    'end': measure_end,
+                    'beats': measure_beats,
+                    'time_signature': time_signature,
+                    'beats_per_measure': len(measure_beats),  # This should now be 3 or 4
+                    'has_irregular_timing': has_pause or len(measure_beats) != beats_per_measure,
+                    'measure_number': len(measures) + 1
+                })
+        
+        return measures
+
     def detect_chords(self):
         """
         Detect chord progressions throughout the song
@@ -328,183 +390,167 @@ class GuitarSoloAnalyzer:
 
     def detect_guitar_licks(self, min_lick_measures=1, max_lick_measures=2):
         """
-        Detect guitar licks using measure-aligned boundaries
-        Ensures all licks start and end on downbeats (beat 1 of measures)
+        Detect guitar licks by evaluating each measure individually
+        If a measure has significant guitar activity, mark it as a lick
+        This ensures licks always start on downbeats and eliminates gaps
         """
-        # Get beats and measures first (no manual offset)
+        # Get beats and measures
         tempo, beats, measures = self.detect_beats_and_measures()
         
-        if len(measures) < 1:
-            print("Not enough measures detected for lick analysis")
+        if len(measures) < min_lick_measures:
+            print(f"Not enough measures ({len(measures)}) for lick detection")
             return []
         
-        print(f"Using {len(measures)} measures for lick detection")
-        print(f"First measure: {measures[0]['start']:.2f}s - {measures[0]['end']:.2f}s")
-        print(f"Beats in first measure: {[f'{b:.2f}' for b in measures[0]['beats']]}")
+        print(f"Analyzing {len(measures)} measures individually for guitar activity")
         
-        # Get onset information for activity detection
-        onset_frames = librosa.onset.onset_detect(
-            y=self.y, 
-            sr=self.sr, 
-            units='time',
-            hop_length=512,
-            backtrack=True
-        )
+        # Get musical activity across the audio
+        activity_timeline = self._detect_musical_activity()
         
-        licks = []
+        # Get onsets for counting note activity in licks
+        onsets = librosa.onset.onset_detect(y=self.y, sr=self.sr, units='time', hop_length=512)
         
-        # Create licks based on measure boundaries
-        i = 0
-        while i <= len(measures) - min_lick_measures:
-            lick_found = False
+        # Evaluate each measure individually
+        measure_activities = []
+        for i, measure in enumerate(measures):
+            start_time = measure['start']
+            end_time = measure['end']
             
-            # Try different lick lengths in measures
-            for lick_length in range(min_lick_measures, min(max_lick_measures + 1, len(measures) - i + 1)):
-                start_time = measures[i]['start']  # Always start on downbeat
+            # Calculate activity score for this measure
+            activity_score = self._calculate_region_activity(activity_timeline, start_time, end_time)
+            
+            # Count onsets in this measure
+            measure_onsets = [o for o in onsets if start_time <= o <= end_time]
+            onset_count = len(measure_onsets)
+            
+            measure_activities.append({
+                'measure_index': i,
+                'measure': measure,
+                'activity_score': activity_score,
+                'onset_count': onset_count,
+                'is_active': activity_score > 0.3  # Threshold for guitar activity
+            })
+        
+        # Now create licks from consecutive active measures
+        licks = []
+        i = 0
+        
+        while i < len(measure_activities):
+            if measure_activities[i]['is_active']:
+                # Start a new lick from this measure
+                lick_measures = [measure_activities[i]]
+                j = i + 1
                 
-                # End time is the start of the next measure after this lick
-                if i + lick_length < len(measures):
-                    end_time = measures[i + lick_length]['start']
-                else:
-                    # If this is the last possible lick, end at the end of the last measure
-                    end_time = measures[i + lick_length - 1]['end']
+                # Try to extend the lick with consecutive active measures (up to max_lick_measures)
+                while (j < len(measure_activities) and 
+                       measure_activities[j]['is_active'] and 
+                       len(lick_measures) < max_lick_measures):
+                    lick_measures.append(measure_activities[j])
+                    j += 1
                 
-                # Count onsets in this region
-                region_onsets = [o for o in onset_frames if start_time <= o <= end_time]
-                
-                # Use advanced guitar detection
-                guitar_score = self.detect_lead_guitar_activity(start_time, end_time)
-                
-                # Only create lick if it has good guitar characteristics
-                if len(region_onsets) >= 1 and guitar_score > 0.4:
+                # Only create lick if it meets minimum length requirement
+                if len(lick_measures) >= min_lick_measures:
+                    # Calculate lick boundaries - always measure boundaries
+                    start_time = lick_measures[0]['measure']['start']
+                    end_time = lick_measures[-1]['measure']['end']
+                    
                     # Collect all beat positions for this lick
                     beat_positions = []
-                    for measure_idx in range(i, min(i + lick_length, len(measures))):
-                        beat_positions.extend(measures[measure_idx]['beats'])
+                    total_beats = 0
+                    total_onsets = 0
+                    measure_numbers = []
+                    
+                    for lick_measure in lick_measures:
+                        measure = lick_measure['measure']
+                        beat_positions.extend(measure['beats'])
+                        total_beats += measure['beats_per_measure']
+                        total_onsets += lick_measure['onset_count']
+                        measure_numbers.append(measure['measure_number'])
+                    
+                    # Calculate average activity score
+                    avg_activity = sum(lm['activity_score'] for lm in lick_measures) / len(lick_measures)
                     
                     licks.append({
                         'start': start_time,
                         'end': end_time,
                         'duration': end_time - start_time,
-                        'beats': lick_length * 4,  # Each measure has 4 beats
-                        'measures': lick_length,
-                        'onset_count': len(region_onsets),
+                        'measures': len(lick_measures),
+                        'beats': total_beats,
+                        'onset_count': total_onsets,
                         'beat_positions': beat_positions,
-                        'activity_score': guitar_score,
-                        'guitar_confidence': guitar_score,
-                        'measure_numbers': list(range(i + 1, i + lick_length + 1))  # For debugging
+                        'activity_score': avg_activity,
+                        'measure_numbers': measure_numbers,
+                        'time_signature': lick_measures[0]['measure']['time_signature'],
+                        'has_irregular_timing': any(lm['measure']['has_irregular_timing'] for lm in lick_measures)
                     })
-                    
-                    # Advance to the end of this lick to avoid overlaps
-                    i += lick_length
-                    lick_found = True
-                    break
-            
-            # If no lick was found, advance by min_lick_measures to find the next potential lick
-            if not lick_found:
-                i += min_lick_measures
+                
+                # Move to the end of this lick
+                i = j
+            else:
+                # This measure is not active, move to next
+                i += 1
         
-        # Filter by guitar confidence
-        guitar_licks = [lick for lick in licks if lick['guitar_confidence'] > 0.5]
-        
-        return guitar_licks
+        print(f"Detected {len(licks)} guitar licks from measure-by-measure analysis")
+        return licks
 
-    def detect_lead_guitar_activity(self, region_start, region_end):
+    def _detect_musical_activity(self):
         """
-        Advanced guitar detection using multiple audio features to distinguish
-        lead guitar from vocals, rhythm guitar, and other instruments
+        Detect overall musical activity using onset density and spectral features
+        Much simpler than the previous guitar-specific detection
         """
-        # Extract the audio segment for this region
-        start_sample = int(region_start * self.sr)
-        end_sample = int(region_end * self.sr)
-        region_audio = self.y[start_sample:end_sample]
+        # Detect onsets
+        onsets = librosa.onset.onset_detect(y=self.y, sr=self.sr, units='time', hop_length=512)
         
-        if len(region_audio) < 1024:  # Too short to analyze
-            return 0.0
+        # Get spectral features that indicate musical activity
+        spectral_centroid = librosa.feature.spectral_centroid(y=self.y, sr=self.sr)[0]
+        spectral_rolloff = librosa.feature.spectral_rolloff(y=self.y, sr=self.sr)[0]
+        rms_energy = librosa.feature.rms(y=self.y)[0]
         
-        # 1. Harmonic-Percussive Separation
-        harmonic, percussive = librosa.effects.hpss(region_audio)
-        harmonic_power = np.mean(harmonic**2)
-        percussive_power = np.mean(percussive**2)
-        hp_ratio = harmonic_power / (percussive_power + 1e-10)  # Lead guitar is more harmonic
+        # Create timeline with 0.5 second windows
+        window_size = 0.5
+        duration = len(self.y) / self.sr
+        timeline = []
         
-        # 2. Spectral features
-        spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=region_audio, sr=self.sr))
-        spectral_bandwidth = np.mean(librosa.feature.spectral_bandwidth(y=region_audio, sr=self.sr))
-        spectral_rolloff = np.mean(librosa.feature.spectral_rolloff(y=region_audio, sr=self.sr))
-        zero_crossing_rate = np.mean(librosa.feature.zero_crossing_rate(region_audio))
+        for t in np.arange(0, duration - window_size, window_size / 2):  # 50% overlap
+            window_start = t
+            window_end = t + window_size
+            
+            # Count onsets in this window
+            window_onsets = len([o for o in onsets if window_start <= o <= window_end])
+            onset_density = window_onsets / window_size
+            
+            # Get average spectral features for this window
+            start_frame = int(window_start * self.sr / 512)
+            end_frame = int(window_end * self.sr / 512)
+            
+            if start_frame < len(spectral_centroid) and end_frame <= len(spectral_centroid):
+                avg_centroid = np.mean(spectral_centroid[start_frame:end_frame])
+                avg_rolloff = np.mean(spectral_rolloff[start_frame:end_frame])
+                avg_energy = np.mean(rms_energy[start_frame:end_frame])
+                
+                # Simple activity score based on onset density, spectral brightness, and energy
+                activity_score = (
+                    min(onset_density / 10.0, 0.4) +  # Onset contribution (max 0.4)
+                    min(avg_centroid / 10000.0, 0.3) +  # Brightness contribution (max 0.3)
+                    min(avg_energy * 10, 0.3)  # Energy contribution (max 0.3)
+                )
+                
+                timeline.append({
+                    'time': t + window_size / 2,
+                    'activity': min(activity_score, 1.0)
+                })
         
-        # 3. Frequency analysis - focus on guitar range
-        fft = np.abs(np.fft.fft(region_audio))
-        freqs = np.fft.fftfreq(len(region_audio), 1/self.sr)
+        return timeline
+
+    def _calculate_region_activity(self, activity_timeline, start_time, end_time):
+        """
+        Calculate average activity score for a time region
+        """
+        region_activities = [
+            entry['activity'] for entry in activity_timeline 
+            if start_time <= entry['time'] <= end_time
+        ]
         
-        # Guitar fundamental frequency range (roughly 80Hz - 1000Hz)
-        guitar_range_mask = (freqs >= 80) & (freqs <= 1000)
-        guitar_power = np.sum(fft[guitar_range_mask]**2)
-        
-        # High frequency content (guitar harmonics vs vocal formants)
-        high_freq_mask = (freqs >= 1000) & (freqs <= 4000)
-        high_freq_power = np.sum(fft[high_freq_mask]**2)
-        
-        # Very high frequency (guitar brightness)
-        very_high_freq_mask = (freqs >= 4000) & (freqs <= 8000)
-        very_high_freq_power = np.sum(fft[very_high_freq_mask]**2)
-        
-        total_power = np.sum(fft**2) + 1e-10
-        guitar_ratio = guitar_power / total_power
-        high_freq_ratio = high_freq_power / total_power
-        brightness_ratio = very_high_freq_power / total_power
-        
-        # 4. Melodic variation (pitch changes indicate lead guitar)
-        pitches, magnitudes = librosa.piptrack(y=region_audio, sr=self.sr, threshold=0.1)
-        valid_pitches = pitches[magnitudes > np.max(magnitudes) * 0.1]
-        pitch_variation = np.std(valid_pitches) if len(valid_pitches) > 0 else 0
-        
-        # 5. Onset density and rhythm complexity
-        region_onsets = librosa.onset.onset_detect(y=region_audio, sr=self.sr, units='time')
-        onset_density = len(region_onsets) / (region_end - region_start)
-        
-        # Calculate guitar score (0-1)
-        guitar_score = 0.0
-        
-        # Harmonic vs percussive (lead guitar is harmonic)
-        guitar_score += min(hp_ratio / 5.0, 0.2)  # Max 0.2 points
-        
-        # Spectral characteristics
-        # Lead guitar typically has higher spectral centroid than rhythm guitar
-        if 1000 < spectral_centroid < 3000:  # Sweet spot for lead guitar
-            guitar_score += 0.15
-        elif spectral_centroid > 3000:  # Too high (might be vocals)
-            guitar_score -= 0.1
-        
-        # Bandwidth - lead guitar has wider bandwidth than vocals
-        if spectral_bandwidth > 500:
-            guitar_score += 0.1
-        
-        # Frequency content ratios
-        guitar_score += min(guitar_ratio * 2, 0.2)  # Guitar fundamental range
-        guitar_score += min(high_freq_ratio * 3, 0.15)  # Guitar harmonics
-        guitar_score += min(brightness_ratio * 5, 0.1)  # Guitar brightness
-        
-        # Pitch variation (lead guitar changes pitch more than rhythm)
-        if pitch_variation > 50:  # Significant pitch movement
-            guitar_score += 0.15
-        elif pitch_variation < 10:  # Too static (might be strumming or held vocal)
-            guitar_score -= 0.1
-        
-        # Onset density (lead guitar has moderate complexity)
-        if 2 < onset_density < 8:  # Good range for lead guitar
-            guitar_score += 0.1
-        elif onset_density > 10:  # Too busy (might be drums)
-            guitar_score -= 0.1
-        elif onset_density < 1:  # Too sparse
-            guitar_score -= 0.05
-        
-        # Zero crossing rate (distinguish from vocals)
-        if 0.05 < zero_crossing_rate < 0.3:  # Typical for guitar
-            guitar_score += 0.05
-        
-        return max(0.0, min(1.0, guitar_score))  # Clamp between 0 and 1
+        return np.mean(region_activities) if region_activities else 0.0
 
     def detect_chords_improved(self):
         """
@@ -652,7 +698,6 @@ class GuitarSoloAnalyzer:
             self.y = self.y[start_sample:end_sample]
             print(f"Analyzing section: {start_time:.2f}s - {end_time:.2f}s")
         
-        # Detect measure-aligned guitar licks (no manual offset)
         print("\nDetecting measure-aligned guitar licks...")
         licks = self.detect_guitar_licks(
             min_lick_measures=min_lick_measures, 
@@ -738,35 +783,355 @@ class GuitarSoloAnalyzer:
         import json
         import os
         
+        def to_native(val):
+            # Convert numpy types to native Python types
+            if isinstance(val, (np.generic,)):
+                return val.item()
+            if isinstance(val, (list, tuple)):
+                return [to_native(v) for v in val]
+            if isinstance(val, dict):
+                return {k: to_native(v) for k, v in val.items()}
+            return val
+        
         # Prepare data for web interface
         dashboard_data = {
-            'audio_file': os.path.basename(audio_filename),
-            'tempo': results.get('tempo', 120),
-            'total_duration': self.duration,
+            'audio_file': str(os.path.basename(audio_filename)),
+            'tempo': float(results.get('tempo', 120)),
+            'total_duration': float(self.duration),
             'licks': []
         }
         
         for lick in results['analysis']:
             lick_data = {
-                'id': lick['lick_number'],
-                'start_time': round(lick['start_time'], 2),
-                'end_time': round(lick['end_time'], 2),
-                'duration': round(lick['duration'], 2),
-                'beats': lick['beats'],
-                'onset_count': lick['onset_count'],
-                'activity_score': round(lick['activity_score'], 2),
-                'primary_chord': lick['primary_chord'],
-                'all_chords': [c['chord'] for c in lick['chords']],
-                'beat_positions': [round(pos, 2) for pos in lick['beat_positions']]
+                'id': int(lick['lick_number']),
+                'start_time': float(round(lick['start_time'], 2)),
+                'end_time': float(round(lick['end_time'], 2)),
+                'duration': float(round(lick['duration'], 2)),
+                'beats': int(lick['beats']),
+                'onset_count': int(lick['onset_count']),
+                'activity_score': float(round(lick['activity_score'], 2)),
+                'primary_chord': str(lick['primary_chord']),
+                'all_chords': [str(c['chord']) for c in lick['chords']],
+                'beat_positions': [float(round(pos, 2)) for pos in lick['beat_positions']]
             }
-            dashboard_data['licks'].append(lick_data)
+            dashboard_data['licks'].append(to_native(lick_data))
         
         # Save JSON file
         with open(output_json, 'w') as f:
-            json.dump(dashboard_data, f, indent=2)
+            json.dump(to_native(dashboard_data), f, indent=2)
         
         print(f"\nDashboard data exported to {output_json}")
         return dashboard_data
+
+    def detect_drum_hits(self):
+        """
+        Detect individual drum hits (kick, snare, hi-hat) using spectral analysis
+        """
+        # Separate harmonic and percussive components
+        harmonic, percussive = librosa.effects.hpss(self.y, margin=8)
+        
+        # Detect onsets in percussive component only
+        onset_frames = librosa.onset.onset_detect(
+            y=percussive, 
+            sr=self.sr, 
+            units='time',
+            hop_length=256,  # Higher resolution
+            pre_max=3,
+            post_max=3,
+            pre_avg=3,
+            post_avg=3,
+            delta=0.1,
+            wait=0.05  # Minimum time between onsets
+        )
+        
+        if len(onset_frames) == 0:
+            return {'kicks': [], 'snares': [], 'hihats': []}
+        
+        # Analyze each onset to classify drum type
+        kicks = []
+        snares = []
+        hihats = []
+        
+        for onset_time in onset_frames:
+            # Extract a small window around the onset
+            start_sample = max(0, int((onset_time - 0.01) * self.sr))
+            end_sample = min(len(percussive), int((onset_time + 0.1) * self.sr))
+            onset_audio = percussive[start_sample:end_sample]
+            
+            if len(onset_audio) < 256:
+                continue
+            
+            # Compute spectral features for classification
+            spectral_centroid = librosa.feature.spectral_centroid(y=onset_audio, sr=self.sr)[0]
+            avg_centroid = np.mean(spectral_centroid)
+            
+            zero_crossing_rate = librosa.feature.zero_crossing_rate(onset_audio)[0]
+            avg_zcr = np.mean(zero_crossing_rate)
+            
+            # Get frequency spectrum
+            fft = np.abs(np.fft.fft(onset_audio))
+            freqs = np.fft.fftfreq(len(onset_audio), 1/self.sr)
+            
+            # Energy in different frequency bands
+            low_energy = np.sum(fft[(freqs >= 40) & (freqs <= 150)]**2)  # Kick range
+            mid_energy = np.sum(fft[(freqs >= 150) & (freqs <= 400)]**2)  # Snare fundamentals
+            high_energy = np.sum(fft[(freqs >= 1000) & (freqs <= 8000)]**2)  # Snare harmonics/hi-hat
+            very_high_energy = np.sum(fft[(freqs >= 8000) & (freqs <= 15000)]**2)  # Hi-hat
+            
+            total_energy = low_energy + mid_energy + high_energy + very_high_energy
+            
+            if total_energy == 0:
+                continue
+            
+            # Normalize energy ratios
+            low_ratio = low_energy / total_energy
+            high_ratio = high_energy / total_energy
+            very_high_ratio = very_high_energy / total_energy
+            
+            # Classify based on spectral characteristics
+            if low_ratio > 0.4 and avg_centroid < 200:
+                # High low-frequency energy, low centroid = kick drum
+                kicks.append({
+                    'time': onset_time,
+                    'confidence': low_ratio,
+                    'centroid': avg_centroid
+                })
+            elif high_ratio > 0.3 and 200 < avg_centroid < 3000 and avg_zcr > 0.1:
+                # Balanced mid/high energy with moderate centroid = snare
+                snares.append({
+                    'time': onset_time,
+                    'confidence': high_ratio,
+                    'centroid': avg_centroid,
+                    'zcr': avg_zcr
+                })
+            elif very_high_ratio > 0.2 and avg_centroid > 3000:
+                # Very high frequency energy = hi-hat
+                hihats.append({
+                    'time': onset_time,
+                    'confidence': very_high_ratio,
+                    'centroid': avg_centroid
+                })
+        
+        print(f"Detected drums: {len(kicks)} kicks, {len(snares)} snares, {len(hihats)} hi-hats")
+        return {
+            'kicks': kicks,
+            'snares': snares,
+            'hihats': hihats
+        }
+
+    def detect_beats_and_measures_drum_aware(self):
+        """
+        Detect beats and measures using drum pattern analysis
+        Handles variable measure lengths and irregular timing
+        """
+        try:
+            # Get basic tempo and beat tracking
+            tempo, beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='time')
+            if isinstance(tempo, np.ndarray):
+                tempo = float(tempo.item() if tempo.size == 1 else tempo[0])
+            else:
+                tempo = float(tempo)
+            
+            if len(beats) < 2:
+                return tempo, beats, []
+            
+            # Detect drum hits
+            drum_hits = self.detect_drum_hits()
+            
+            # If we have snare hits, use them to establish the beat grid
+            if len(drum_hits['snares']) >= 2:
+                print("Using snare-based beat alignment...")
+                return self._align_beats_with_snares(tempo, beats, drum_hits)
+            elif len(drum_hits['kicks']) >= 2:
+                print("Using kick-based beat alignment...")
+                return self._align_beats_with_kicks(tempo, beats, drum_hits)
+            else:
+                print("Falling back to onset-based beat alignment...")
+                return self._align_beats_with_onsets(tempo, beats)
+                
+        except Exception as e:
+            print(f"Drum-aware beat detection failed: {e}")
+            return 120.0, [], []
+
+    def _align_beats_with_snares(self, tempo, beats, drum_hits):
+        """
+        Use snare hits (typically on beats 2 and 4) to establish proper beat alignment
+        """
+        snare_times = [hit['time'] for hit in drum_hits['snares']]
+        
+        # Find which detected beats are closest to snare hits
+        snare_beat_indices = []
+        for snare_time in snare_times:
+            closest_beat_idx = np.argmin(np.abs(beats - snare_time))
+            if abs(beats[closest_beat_idx] - snare_time) < 0.2:  # Within 200ms
+                snare_beat_indices.append(closest_beat_idx)
+        
+        if len(snare_beat_indices) < 2:
+            return self._align_beats_with_onsets(tempo, beats)
+        
+        # Analyze the pattern of snare beats to determine time signature
+        snare_intervals = []
+        for i in range(1, len(snare_beat_indices)):
+            interval = snare_beat_indices[i] - snare_beat_indices[i-1]
+            snare_intervals.append(interval)
+        
+        # Most common interval between snares
+        most_common_interval = max(set(snare_intervals), key=snare_intervals.count)
+        
+        # In 4/4 time, snares are typically 2 beats apart (beat 2 to beat 4, or beat 4 to beat 2 of next measure)
+        if most_common_interval == 2:
+            beats_per_measure = 4
+            print("Detected 4/4 time signature")
+        elif most_common_interval == 3:
+            beats_per_measure = 6  # Could be 6/8 or 6/4
+            print("Detected 6/8 or 6/4 time signature")
+        elif most_common_interval == 4:
+            beats_per_measure = 8  # Could be 8/8 time
+            print("Detected 8/8 time signature")
+        else:
+            beats_per_measure = 4  # Default to 4/4
+            print(f"Unusual snare pattern (interval={most_common_interval}), defaulting to 4/4")
+        
+        # Find the first downbeat by working backwards from the first snare
+        first_snare_idx = snare_beat_indices[0]
+        
+        # In 4/4, if snare is on beat 2, downbeat is 1 beat earlier
+        # In 4/4, if snare is on beat 4, downbeat is 3 beats earlier
+        # Try both possibilities and see which gives more consistent patterns
+        possible_downbeat_offsets = []
+        if beats_per_measure == 4:
+            possible_downbeat_offsets = [-1, -3]  # Beat 2 or beat 4
+        elif beats_per_measure == 6:
+            possible_downbeat_offsets = [-1, -3, -5]  # Various possibilities in 6/8
+        else:
+            possible_downbeat_offsets = [-1, -3]  # Default
+        
+        best_downbeat_idx = first_snare_idx - 1  # Default assumption
+        best_score = 0
+        
+        for offset in possible_downbeat_offsets:
+            potential_downbeat_idx = first_snare_idx + offset
+            if potential_downbeat_idx < 0:
+                continue
+            
+            # Score this downbeat position by checking how well subsequent snares align
+            score = 0
+            for snare_idx in snare_beat_indices:
+                beats_from_downbeat = snare_idx - potential_downbeat_idx
+                if beats_from_downbeat > 0:
+                    # Check if this snare falls on expected beats (2, 4, 6, etc.)
+                    expected_snare_positions = list(range(1, beats_per_measure, 2))  # 1, 3, 5... (0-indexed as beat 2, 4, 6...)
+                    if beats_per_measure == 4:
+                        expected_snare_positions = [1, 3]  # Beat 2 and 4
+                    elif beats_per_measure == 6:
+                        expected_snare_positions = [1, 3, 5]  # Beat 2, 4, 6
+                    
+                    beat_in_measure = beats_from_downbeat % beats_per_measure
+                    if beat_in_measure in expected_snare_positions:
+                        score += 1
+            
+            if score > best_score:
+                best_score = score
+                best_downbeat_idx = potential_downbeat_idx
+        
+        # Generate measures starting from the best downbeat
+        measures = []
+        i = best_downbeat_idx
+        
+        while i + beats_per_measure - 1 < len(beats):
+            measure_beats = beats[i:i + beats_per_measure]
+            measures.append({
+                'start': measure_beats[0],
+                'end': measure_beats[-1],
+                'beats': measure_beats.tolist(),
+                'time_signature': f"{beats_per_measure}/4"
+            })
+            i += beats_per_measure
+        
+        print(f"Snare-aligned {len(measures)} measures ({beats_per_measure}/4 time)")
+        return tempo, beats, measures
+
+    def _align_beats_with_kicks(self, tempo, beats, drum_hits):
+        """
+        Use kick hits (typically on beats 1 and 3) to establish beat alignment
+        """
+        kick_times = [hit['time'] for hit in drum_hits['kicks']]
+        
+        # Find which detected beats are closest to kick hits
+        kick_beat_indices = []
+        for kick_time in kick_times:
+            closest_beat_idx = np.argmin(np.abs(beats - kick_time))
+            if abs(beats[closest_beat_idx] - kick_time) < 0.2:  # Within 200ms
+                kick_beat_indices.append(closest_beat_idx)
+        
+        if len(kick_beat_indices) < 2:
+            return self._align_beats_with_onsets(tempo, beats)
+        
+        # In 4/4, kicks are typically on beats 1 and 3 (2 beats apart)
+        # Use the first kick as a likely downbeat
+        first_kick_idx = kick_beat_indices[0]
+        beats_per_measure = 4  # Assume 4/4 for kick-based detection
+        
+        measures = []
+        i = first_kick_idx
+        
+        while i + beats_per_measure - 1 < len(beats):
+            measure_beats = beats[i:i + beats_per_measure]
+            measures.append({
+                'start': measure_beats[0],
+                'end': measure_beats[-1],
+                'beats': measure_beats.tolist(),
+                'time_signature': "4/4"
+            })
+            i += beats_per_measure
+        
+        print(f"Kick-aligned {len(measures)} measures (4/4 time)")
+        return tempo, beats, measures
+
+    def _align_beats_with_onsets(self, tempo, beats):
+        """
+        Fallback method using onset strength analysis
+        """
+        # Use the original onset strength method but with dynamic measure detection
+        onset_strength = librosa.onset.onset_strength(y=self.y, sr=self.sr)
+        onset_times = librosa.frames_to_time(np.arange(len(onset_strength)), sr=self.sr)
+        
+        # Find the strongest beats (likely downbeats)
+        beat_strengths = []
+        for beat_time in beats:
+            closest_idx = np.argmin(np.abs(onset_times - beat_time))
+            beat_strengths.append(onset_strength[closest_idx])
+        
+        # Find peaks in beat strength that might indicate downbeats
+        from scipy.signal import find_peaks
+        peaks, _ = find_peaks(beat_strengths, height=np.percentile(beat_strengths, 75))
+        
+        if len(peaks) >= 2:
+            # Use intervals between strong beats to estimate measure length
+            peak_intervals = np.diff(peaks)
+            most_common_interval = max(set(peak_intervals), key=list(peak_intervals).count) if len(peak_intervals) > 0 else 4
+            beats_per_measure = int(most_common_interval)
+        else:
+            beats_per_measure = 4  # Default
+        
+        # Start from first strong beat
+        first_downbeat_idx = peaks[0] if len(peaks) > 0 else 0
+        
+        measures = []
+        i = first_downbeat_idx
+        
+        while i + beats_per_measure - 1 < len(beats):
+            measure_beats = beats[i:i + beats_per_measure]
+            measures.append({
+                'start': measure_beats[0],
+                'end': measure_beats[-1],
+                'beats': measure_beats.tolist(),
+                'time_signature': f"{beats_per_measure}/4"
+            })
+            i += beats_per_measure
+        
+        print(f"Onset-aligned {len(measures)} measures ({beats_per_measure}/4 time)")
+        return tempo, beats, measures
 
 # Usage example
 if __name__ == "__main__":
@@ -774,7 +1139,6 @@ if __name__ == "__main__":
     analyzer = GuitarSoloAnalyzer("Blue Sky.mp3")
     
     # Analyze guitar licks - focus on the solo section with measure-aligned licks
-    # Try manual_beat_offset=0, 1, 2, or 3 if automatic detection doesn't work well
     results = analyzer.analyze_guitar_licks(
         start_time=120, 
         end_time=300,
@@ -786,7 +1150,7 @@ if __name__ == "__main__":
     analyzer.print_lick_analysis(results)
     
     # Save to CSV with the new method
-    analyzer.save_lick_analysis_to_csv(results, "texas_flood_licks.csv")
+    analyzer.save_lick_analysis_to_csv(results, "guitar_licks.csv")
     
     # Export for web dashboard
     analyzer.export_for_web_dashboard(results, analyzer.audio_file, "dashboard_data.json")
