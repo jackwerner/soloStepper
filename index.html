@@ -261,20 +261,6 @@
     <div class="dashboard">
         <h1>🎸 Guitar Lick Analysis Dashboard</h1>
         
-        <div class="audio-section">
-            <h3>Audio Playback</h3>
-            <audio id="audioPlayer" controls>
-                <source id="audioSource" src="" type="audio/mpeg">
-                Your browser does not support the audio element.
-            </audio>
-            <div class="controls">
-                <button onclick="playCurrentLick()">Play Current Lick</button>
-                <button onclick="playPreviousLick()">← Previous Lick</button>
-                <button onclick="playNextLick()">Next Lick →</button>
-                <button onclick="stopPlayback()">Stop</button>
-            </div>
-        </div>
-        
         <div class="stats" id="statsContainer">
             <!-- Stats will be populated by JavaScript -->
         </div>
@@ -302,9 +288,7 @@
     <script>
         let dashboardData = null;
         let currentLickIndex = 0;
-        let audioPlayer = null;
         let isLooping = false;
-        let timeUpdateHandler = null;
         let animationFrameId = null;
         
         // Web Audio API for seamless looping
@@ -315,7 +299,6 @@
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', function() {
-            audioPlayer = document.getElementById('audioPlayer');
             initializeWebAudio();
             loadDashboardData();
         });
@@ -323,8 +306,9 @@
         async function initializeWebAudio() {
             try {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                console.log('Web Audio API initialized');
             } catch (e) {
-                console.log('Web Audio API not supported, falling back to HTML5 audio');
+                console.error('Web Audio API not supported:', e);
             }
         }
 
@@ -336,9 +320,9 @@
                 const arrayBuffer = await response.arrayBuffer();
                 audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
                 isWebAudioMode = true;
-                console.log('Web Audio API mode enabled for seamless looping');
+                console.log('Audio buffer loaded successfully');
             } catch (e) {
-                console.log('Failed to load Web Audio buffer, using HTML5 audio');
+                console.error('Failed to load audio buffer:', e);
                 isWebAudioMode = false;
             }
         }
@@ -348,11 +332,7 @@
                 const response = await fetch('dashboard_data.json');
                 dashboardData = await response.json();
                 
-                // Set audio source
-                document.getElementById('audioSource').src = dashboardData.audio_file;
-                audioPlayer.load();
-                
-                // Load Web Audio buffer for seamless looping
+                // Load Web Audio buffer
                 await loadAudioBuffer();
                 
                 renderDashboard();
@@ -438,8 +418,8 @@
         function selectLick(index) {
             if (index < 0 || index >= dashboardData.licks.length) return;
             
-            // Stop any current playback
-            stopPlayback();
+            // Stop any current playback immediately
+            forceStopAllPlayback();
             
             currentLickIndex = index;
             
@@ -455,8 +435,10 @@
             // Update current lick info
             updateCurrentLickInfo();
             
-            // Start playing the selected lick once
-            playCurrentLick();
+            // Small delay to ensure cleanup, then start new lick
+            setTimeout(() => {
+                playCurrentLick();
+            }, 10);
         }
         
         function updateCurrentLickInfo() {
@@ -525,15 +507,26 @@
             }
         }
 
-        // SEAMLESS LOOPING - Web Audio API version (zero gaps)
-        function playCurrentLickWebAudio() {
-            if (!audioContext || !audioBuffer || !dashboardData) return;
+        // Simplified playback - Web Audio API only
+        function playCurrentLick() {
+            if (!dashboardData || currentLickIndex >= dashboardData.licks.length) return;
+            
+            if (!isWebAudioMode || !audioBuffer || !audioContext) {
+                console.error('Web Audio API not available');
+                return;
+            }
             
             const lick = dashboardData.licks[currentLickIndex];
             
             // Stop any existing source
             if (source) {
-                source.stop();
+                try {
+                    source.stop();
+                    source.disconnect();
+                } catch (e) {
+                    // Already stopped
+                }
+                source = null;
             }
             
             function startLoop() {
@@ -561,54 +554,6 @@
             }
         }
 
-        // SEAMLESS LOOPING - Choose best method
-        function playCurrentLick() {
-            if (!dashboardData || currentLickIndex >= dashboardData.licks.length) return;
-            
-            if (isWebAudioMode && audioBuffer) {
-                playCurrentLickWebAudio();
-                return;
-            }
-            
-            // Fallback to optimized HTML5 audio
-            const lick = dashboardData.licks[currentLickIndex];
-            
-            // Clear any existing animations
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-                animationFrameId = null;
-            }
-            
-            // Set position and play
-            audioPlayer.currentTime = lick.start_time;
-            audioPlayer.play();
-            
-            // Use requestAnimationFrame for perfect timing
-            function checkLoopPoint() {
-                if (audioPlayer.paused) {
-                    animationFrameId = null;
-                    return;
-                }
-                
-                const currentTime = audioPlayer.currentTime;
-                const timeBuffer = 0.005; // Smaller 5ms buffer to avoid cutting off beats
-                
-                if (currentTime >= lick.end_time - timeBuffer) {
-                    if (isLooping) {
-                        audioPlayer.currentTime = lick.start_time;
-                    } else {
-                        audioPlayer.pause();
-                        animationFrameId = null;
-                        return;
-                    }
-                }
-                
-                animationFrameId = requestAnimationFrame(checkLoopPoint);
-            }
-            
-            animationFrameId = requestAnimationFrame(checkLoopPoint);
-        }
-
         function toggleLooping() {
             if (isLooping) {
                 stopLooping();
@@ -621,17 +566,14 @@
             isLooping = true;
             updateLoopingUI();
             
-            // If not already playing, start playing
-            if (audioPlayer.paused) {
-                playCurrentLick();
-            }
-            // If already playing, the timeupdate listener will handle looping
+            // Start playing if not already
+            playCurrentLick();
         }
 
         function stopLooping() {
             isLooping = false;
             updateLoopingUI();
-            // Don't stop playback, just disable looping
+            // Continue playing current iteration but don't loop
         }
 
         function playPreviousLick() {
@@ -646,24 +588,33 @@
             }
         }
 
-        function stopPlayback() {
+        function forceStopAllPlayback() {
+            // Stop looping immediately
             isLooping = false;
-            updateLoopingUI();
             
             // Stop Web Audio source
             if (source) {
-                source.stop();
+                try {
+                    source.stop();
+                    source.disconnect();
+                } catch (e) {
+                    // Source might already be stopped
+                }
                 source = null;
             }
-            
-            // Stop HTML5 audio
-            audioPlayer.pause();
             
             // Clean up animations
             if (animationFrameId) {
                 cancelAnimationFrame(animationFrameId);
                 animationFrameId = null;
             }
+            
+            // Update UI
+            updateLoopingUI();
+        }
+
+        function stopPlayback() {
+            forceStopAllPlayback();
         }
 
         // Keyboard shortcuts
