@@ -1136,7 +1136,7 @@ class GuitarSoloAnalyzer:
 # Usage example
 if __name__ == "__main__":
     # Initialize analyzer
-    analyzer = GuitarSoloAnalyzer("Blue Sky.mp3")
+    analyzer = GuitarSoloAnalyzer("Bertha (Veneta 72).mp3")
     
     # Analyze guitar licks - focus on the solo section with measure-aligned licks
     results = analyzer.analyze_guitar_licks(
