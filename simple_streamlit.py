@@ -71,6 +71,70 @@ def create_youtube_player(video_id, start_time, end_time):
             .set-button:hover {{
                 background: #3333cc !important;
             }}
+            .save-section {{
+                margin: 20px 0;
+                padding: 15px;
+                background: #f8f9fa;
+                border-radius: 8px;
+                border: 1px solid #dee2e6;
+            }}
+            .save-controls {{
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                margin-bottom: 15px;
+                flex-wrap: wrap;
+            }}
+            .save-controls input {{
+                padding: 8px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 14px;
+            }}
+            .save-button {{
+                background: #28a745 !important;
+                color: white;
+            }}
+            .save-button:hover {{
+                background: #218838 !important;
+            }}
+            .saved-loops {{
+                margin-top: 15px;
+            }}
+            .loop-item {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px;
+                margin: 5px 0;
+                background: white;
+                border-radius: 4px;
+                border: 1px solid #ddd;
+            }}
+            .loop-info {{
+                flex: 1;
+                text-align: left;
+            }}
+            .loop-actions {{
+                display: flex;
+                gap: 5px;
+            }}
+            .load-button {{
+                background: #007bff !important;
+                font-size: 12px;
+                padding: 4px 8px;
+            }}
+            .load-button:hover {{
+                background: #0056b3 !important;
+            }}
+            .delete-button {{
+                background: #dc3545 !important;
+                font-size: 12px;
+                padding: 4px 8px;
+            }}
+            .delete-button:hover {{
+                background: #c82333 !important;
+            }}
         </style>
     </head>
     <body>
@@ -95,6 +159,16 @@ def create_youtube_player(video_id, start_time, end_time):
             <button class="set-button" onclick="setCurrentAsEnd()">🏁 Set Current as End</button>
         </div>
 
+        <div class="save-section">
+            <h3>💾 Save & Load Loops</h3>
+            <div class="save-controls">
+                <input type="text" id="loopName" placeholder="Loop name..." value="Loop 1">
+                <button class="save-button" onclick="saveCurrentLoop()">💾 Save Current Loop</button>
+                <span id="saveStatus" style="color: green; font-weight: bold;"></span>
+            </div>
+            <div id="savedLoops" class="saved-loops"></div>
+        </div>
+
         <script>
             var tag = document.createElement('script');
             tag.src = "https://www.youtube.com/iframe_api";
@@ -111,6 +185,8 @@ def create_youtube_player(video_id, start_time, end_time):
             var seekTimeout;
             var allowLooping = true;
             var wasPlaying = false;
+            var savedLoops = [];
+            var loopCounter = 1;
 
             function onYouTubeIframeAPIReady() {{
                 player = new YT.Player('player', {{
@@ -134,6 +210,7 @@ def create_youtube_player(video_id, start_time, end_time):
                 console.log('Player ready');
                 jumpToStart();
                 startTimeUpdater();
+                displaySavedLoops();
             }}
 
             function onPlayerStateChange(event) {{
@@ -361,6 +438,104 @@ def create_youtube_player(video_id, start_time, end_time):
                     }}
                 }}
             }}
+
+            function saveCurrentLoop() {{
+                var loopName = document.getElementById('loopName').value.trim();
+                if (!loopName) {{
+                    loopName = `Loop ${{loopCounter}}`;
+                }}
+                
+                if (endTime > startTime) {{
+                    var loop = {{
+                        name: loopName,
+                        start: startTime,
+                        end: endTime,
+                        duration: endTime - startTime
+                    }};
+                    
+                    savedLoops.push(loop);
+                    loopCounter++;
+                    
+                    // Update the input for next loop
+                    document.getElementById('loopName').value = `Loop ${{loopCounter}}`;
+                    
+                    // Show success message
+                    var saveStatus = document.getElementById('saveStatus');
+                    saveStatus.textContent = `✅ Saved: ${{loopName}}`;
+                    setTimeout(function() {{
+                        saveStatus.textContent = '';
+                    }}, 3000);
+                    
+                    // Refresh the display
+                    displaySavedLoops();
+                }} else {{
+                    document.getElementById('saveStatus').textContent = '❌ End time must be greater than start time!';
+                    document.getElementById('saveStatus').style.color = 'red';
+                    setTimeout(function() {{
+                        document.getElementById('saveStatus').textContent = '';
+                        document.getElementById('saveStatus').style.color = 'green';
+                    }}, 3000);
+                }}
+            }}
+
+            function loadLoop(index) {{
+                var loop = savedLoops[index];
+                if (loop) {{
+                    startTime = loop.start;
+                    endTime = loop.end;
+                    
+                    // Update display
+                    document.getElementById('loopStart').textContent = startTime.toFixed(2);
+                    document.getElementById('loopEnd').textContent = endTime.toFixed(2);
+                    
+                    // Visual feedback
+                    var timeDisplay = document.querySelector('.time-display');
+                    timeDisplay.classList.add('updated');
+                    setTimeout(function() {{
+                        timeDisplay.classList.remove('updated');
+                    }}, 1000);
+                    
+                    // Jump to start of loaded loop
+                    jumpToStart();
+                    
+                    document.getElementById('status').textContent = `Loaded: ${{loop.name}}`;
+                    setTimeout(function() {{
+                        document.getElementById('status').textContent = 'Loop loaded! Ready to practice';
+                    }}, 2000);
+                }}
+            }}
+
+            function deleteLoop(index) {{
+                if (confirm(`Delete "${{savedLoops[index].name}}"?`)) {{
+                    savedLoops.splice(index, 1);
+                    displaySavedLoops();
+                }}
+            }}
+
+            function displaySavedLoops() {{
+                var container = document.getElementById('savedLoops');
+                if (savedLoops.length === 0) {{
+                    container.innerHTML = '<p style="color: #666; font-style: italic;">No saved loops yet. Set your loop times and save them!</p>';
+                    return;
+                }}
+                
+                var html = '';
+                for (var i = 0; i < savedLoops.length; i++) {{
+                    var loop = savedLoops[i];
+                    html += `
+                        <div class="loop-item">
+                            <div class="loop-info">
+                                <strong>${{loop.name}}</strong> - ${{loop.start.toFixed(2)}}s to ${{loop.end.toFixed(2)}}s (${{loop.duration.toFixed(2)}}s)
+                            </div>
+                            <div class="loop-actions">
+                                <button class="load-button" onclick="loadLoop(${{i}})">🔄 Load</button>
+                                <button class="delete-button" onclick="deleteLoop(${{i}})">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `;
+                }}
+                container.innerHTML = html;
+            }}
         </script>
     </body>
     </html>
@@ -378,7 +553,7 @@ def main():
     st.title("🎵 LoopLap by Jack Werner")
     st.markdown("Perfect for practicing music sections with precise timing!")
     
-    # Initialize session state for tracking start time changes
+    # Initialize session state
     if 'last_start_time' not in st.session_state:
         st.session_state.last_start_time = 0.0
     if 'default_duration' not in st.session_state:
@@ -387,22 +562,30 @@ def main():
         st.session_state.auto_end_time = 10.0
     if 'example_url' not in st.session_state:
         st.session_state.example_url = ""
+    if 'current_video_url' not in st.session_state:
+        st.session_state.current_video_url = ""
     
     # Input section
-    
     youtube_url = st.text_input(
         "YouTube URL:", 
-        value=st.session_state.example_url,
+        value=st.session_state.example_url or st.session_state.current_video_url,
         placeholder="https://www.youtube.com/watch?v=...",
         help="Paste any YouTube URL here"
     )
+    
+    # Store the URL in session state when it changes
+    if youtube_url and youtube_url != st.session_state.current_video_url:
+        st.session_state.current_video_url = youtube_url
     
     # Clear the example URL after it's been used
     if youtube_url and st.session_state.example_url:
         st.session_state.example_url = ""
     
-    if youtube_url:
-        video_id = extract_video_id(youtube_url)
+    # Use the stored URL as the source of truth
+    active_url = st.session_state.current_video_url
+    
+    if active_url:
+        video_id = extract_video_id(active_url)
         
         if video_id:
             st.success(f"✅ Video ID extracted: {video_id}")
@@ -411,11 +594,11 @@ def main():
             start_time_total = 0.0
             end_time_total = 10.0
             
-            st.markdown("### 🎬 Video Player")
+            st.markdown("### 🎬 Video Player with Loop Saving")
             
             # Create and display the player
             player_html = create_youtube_player(video_id, start_time_total, end_time_total)
-            components.html(player_html, height=600)
+            components.html(player_html, height=800)
             
             st.markdown("### 🎮 How to Use:")
             st.markdown("""
@@ -426,8 +609,11 @@ def main():
             - **🔄 Reset**: Jump to start and play
             - **📍 Set Current as Start**: Use current position as start time
             - **🏁 Set Current as End**: Use current position as end time
+            - **💾 Save Loop**: Save current loop times with a name (no page reload!)
+            - **🔄 Load**: Load a saved loop and jump to it
+            - **🗑️ Delete**: Remove saved loops
             
-            **Pro tip**: Use the video player's built-in controls to set your perfect loop!
+            **Pro tip**: The video keeps playing while you save/load loops!
             """)
                 
         else:
