@@ -100,6 +100,27 @@ def create_youtube_player(video_id, start_time, end_time):
             }}
             .saved-loops {{
                 margin-top: 15px;
+                max-height: 300px;
+                overflow-y: auto;
+                overflow-x: hidden;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 10px;
+                background: white;
+            }}
+            .saved-loops::-webkit-scrollbar {{
+                width: 8px;
+            }}
+            .saved-loops::-webkit-scrollbar-track {{
+                background: #f1f1f1;
+                border-radius: 4px;
+            }}
+            .saved-loops::-webkit-scrollbar-thumb {{
+                background: #c1c1c1;
+                border-radius: 4px;
+            }}
+            .saved-loops::-webkit-scrollbar-thumb:hover {{
+                background: #a1a1a1;
             }}
             .loop-item {{
                 display: flex;
@@ -107,9 +128,9 @@ def create_youtube_player(video_id, start_time, end_time):
                 align-items: center;
                 padding: 8px;
                 margin: 5px 0;
-                background: white;
+                background: #f8f9fa;
                 border-radius: 4px;
-                border: 1px solid #ddd;
+                border: 1px solid #e9ecef;
             }}
             .loop-info {{
                 flex: 1;
@@ -134,6 +155,12 @@ def create_youtube_player(video_id, start_time, end_time):
             }}
             .delete-button:hover {{
                 background: #c82333 !important;
+            }}
+            .no-loops {{
+                color: #666;
+                font-style: italic;
+                text-align: center;
+                padding: 20px;
             }}
         </style>
     </head>
@@ -515,7 +542,7 @@ def create_youtube_player(video_id, start_time, end_time):
             function displaySavedLoops() {{
                 var container = document.getElementById('savedLoops');
                 if (savedLoops.length === 0) {{
-                    container.innerHTML = '<p style="color: #666; font-style: italic;">No saved loops yet. Set your loop times and save them!</p>';
+                    container.innerHTML = '<div class="no-loops">No saved loops yet. Set your loop times and save them!</div>';
                     return;
                 }}
                 
@@ -596,9 +623,9 @@ def main():
             
             st.markdown("### 🎬 Video Player with Loop Saving")
             
-            # Create and display the player
+            # Create and display the player with increased height
             player_html = create_youtube_player(video_id, start_time_total, end_time_total)
-            components.html(player_html, height=800)
+            components.html(player_html, height=1000)
             
             st.markdown("### 🎮 How to Use:")
             st.markdown("""
