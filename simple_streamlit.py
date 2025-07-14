@@ -685,7 +685,7 @@ def main():
                 st.rerun()
         
         with col7:
-            if st.button("🎵 Julianne Johnson (Old Time fiddle tune)", key="example_7"):
+            if st.button("🎵 Julie Ann Johnson (Old Time fiddle tune)", key="example_7"):
                 st.session_state.example_url = "https://www.youtube.com/watch?v=9gbBE3k-NoY"
                 st.rerun()
         
