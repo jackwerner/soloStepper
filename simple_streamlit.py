@@ -652,7 +652,7 @@ def main():
         # Example YouTube links
         st.markdown("### 🎥 Try These Examples:")
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5, col6, col7 = st.columns(7)  
         
         with col1:
             if st.button("🎸 Sugaree (Noblesville '21) - Dead & Co", key="example_1"):
@@ -672,6 +672,21 @@ def main():
         with col4:
             if st.button("🎵 Terrapin Station (Winterland '77) - Grateful Dead", key="example_4"):
                 st.session_state.example_url = "https://www.youtube.com/watch?v=bdWrBFFg5Js"
+                st.rerun()
+        
+        with col5:
+            if st.button("🎵 Viola Lee Blues (Los Angeles '67) - Grateful Dead", key="example_5"):
+                st.session_state.example_url = "https://www.youtube.com/watch?v=RAgsApoaenI"
+                st.rerun()
+
+        with col6:
+            if st.button("🎵 Franklin's Tower (Boston '91) - Grateful Dead", key="example_6"):
+                st.session_state.example_url = "https://www.youtube.com/watch?v=W3gbGQeoYhI"
+                st.rerun()
+        
+        with col7:
+            if st.button("🎵 Julianne Johnson (Old Time fiddle tune)", key="example_7"):
+                st.session_state.example_url = "https://www.youtube.com/watch?v=9gbBE3k-NoY"
                 st.rerun()
         
         # Show example
